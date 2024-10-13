@@ -1,52 +1,100 @@
-import React from 'react'
+import React, { useContext, useEffect, useState } from 'react'
 import './ChatBot.css'
 import assets from '../../assets/assets'
+import { AppContext } from '../../context/AppContext'
+import { arrayUnion, doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore'
+import { db } from '../../config/firebase'
 
 const ChatBox = () => {
-  return (
+  const { userData, messagesId, messages, chatUser, setMessages } = useContext(AppContext);
+  const [input, setInput] = useState("");
+
+  const sendMessage = async () => {
+    try {
+      if (input && messagesId) {
+        await updateDoc(doc(db, 'messages', messagesId), {
+          messages: arrayUnion({
+            sId: userData.id,
+            text: input,
+            createdAt: new Date()
+          })
+        })
+
+        const userIds = [chatUser.rId, userData.id];
+        userIds.forEach(async (id) => {
+          const userChatRef = doc(db, 'chats', id);
+          const userChatSnapshot = await getDoc(userChatRef);
+          if (userChatSnapshot.exists()) {
+            const userChatData = userChatSnapshot.data();
+            const chatIndex = userChatData.chatData.findIndex((c) => { c.messageId === messagesId })
+            console.log(userChatData)
+            userChatData.chatData[chatIndex].lastMessage = input.slice(0, 30);
+            userChatData.chatData[chatIndex].updatedAt = Date.now();
+
+            if (userChatData.chatData[chatIndex].rId === userData.id) {
+              userChatData.chatData[chatIndex].messageSeen = false;
+            }
+
+            await updateDoc(userChatRef, {
+              chatData: userChatData.chatData
+            })
+          }
+        })
+      }
+    } catch (error) {
+      toast.error(error.message);
+      console.log(error)
+    }
+
+    setInput("");
+  }
+
+  useEffect(() => {
+    if (messagesId) {
+      const unSub = onSnapshot(doc(db, 'messages', messagesId), (res) => {
+        setMessages(res.data().messages.reverse())
+      })
+      return () => {
+        unSub();
+      }
+    }
+  }, [messagesId])
+
+  return chatUser ? (
     <div className="chat-box">
       <div className="chat-user">
-        <img src={assets.profile_img} alt="" />
-        <p>Richard <img src={assets.green_dot} alt="" className='dot'/></p>
+        <img src={chatUser.userData.avatar} alt="" />
+        <p>{chatUser.userData.name} <img src={assets.green_dot} alt="" className='dot' /></p>
         <img src={assets.help_icon} className='help' alt="" />
       </div>
 
       <div className="chat-msg">
-        <div className="s-msg">
-          <p className='msg'>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Consequuntur voluptatibus itaque voluptates tenetur quaerat assumenda inventore cum distinctio omnis facilis fuga fugit, beatae numquam adipisci, accusantium illo sapiente? Aspernatur, quibusdam?</p>
-          <div>
-            <img src={assets.profile_img} alt="" />
-            <p>2:30PM</p>
+        {messages.map((msg, idx) => {
+          <div  key={idx} className={msg.sId === userData.id ? "s-msg" : "r-msg"}>
+            <p className='msg'>{msg.text}</p>
+            <div>
+              <img src={msg.sId === userData.id ? userData.avatar : chatUser.userData.avatar} alt="" />
+              <p>2:30PM</p>
+            </div>
           </div>
-        </div>
-
-        <div className="s-msg">
-          <img src={assets.pic1} className='msg-image' alt="" />
-          <div>
-            <img src={assets.profile_img} alt="" />
-            <p>2:30PM</p>
-          </div>
-        </div>
-
-        <div className="r-msg">
-          <p className='msg'>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Consequuntur voluptatibus itaque voluptates tenetur quaerat assumenda inventore cum distinctio omnis facilis fuga fugit, beatae numquam adipisci, accusantium illo sapiente? Aspernatur, quibusdam?</p>
-          <div>
-            <img src={assets.profile_img} alt="" />
-            <p>2:30PM</p>
-          </div>
-        </div>
+        })}
       </div>
 
       <div className='chat-input'>
-        <input type="text" placeholder=''/>
-        <input type="file" id='image' accept='image/png, image/jpeg' hidden/>
+        <input type="text" placeholder='' onChange={(e) => { setInput(e.target.value) }} value={input} />
+        <input type="file" id='image' accept='image/png, image/jpeg' hidden />
         <label htmlFor='image'>
           <img src={assets.gallery_icon} alt="" />
         </label>
-        <img src={assets.send_button} alt="" />
+        <img src={assets.send_button} onClick={sendMessage} alt="" />
       </div>
     </div>
   )
+    :
+    <div className='chat-welcome'>
+      <img src={assets.logo_icon} alt="" />
+      <p>Chat Anytime Anywhere</p>
+    </div>
 }
 
 export default ChatBox
